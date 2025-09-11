@@ -4,8 +4,8 @@ import cv2
 import numpy as np
 import os
 
-from personface_detection import PersonFaceDetector, CLASSES, COLORS
-from emotion_detection import EmotionDetector
+from detection.personface_detection import PersonFaceDetector, CLASSES, COLORS
+from detection.emotion_detection import EmotionDetector
 
 import gi
 
