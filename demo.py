@@ -85,8 +85,11 @@ class PFDemo:
             for x1, y1, x2, y2, score, cls in detections:
                 if cls == 1:
                     face_crop = frame[y1:y2, x1:x2]
-                    emo = self.emo_detector.detect(face_crop)
-                    self.emo = emo
+                    try:
+                        emo = self.emo_detector.detect(face_crop)
+                        self.emo = emo
+                    except Exception as e:
+                        pass
         else:
             self.detections = detections
             self.emo = emo

@@ -18,8 +18,8 @@ CONF_THRESH = 0.5
 IOU_THRESH = 0.45
 CLASSES = ["person", "face"]
 COLORS = {
-    "person": (255, 0, 0),  # Blue
-    "face": (0, 255, 0),  # Green
+    "person": (0, 0, 255),
+    "face": (255, 0, 0),
 }
 
 
