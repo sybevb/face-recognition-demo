@@ -1,24 +1,39 @@
-# SCAiLX Face Recognition  Demo
+# 🎭 SCAiLX Face Recognition Demo
 
-- person and face detection with 
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![Platform](https://img.shields.io/badge/Platform-SCAiLX-orange)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-## Dependencies
-- python
-- tflite_runtime
-- hailoplatform
-- gstreamer
-- opencv2
-- numpy
+Real-time **person and face detection** with **facial expression recognition** on the SCAiLX platform.
 
-# Steps
-1. git clone the repo on the SCAILX \
-`curl -L https://github.com/git-lfs/git-lfs/releases/download/v3.6.1/git-lfs-linux-arm64-v3.6.1.tar.gz | tar -xz` \
-`cp ./git-lfs*/git-lfs /usr/bin ` \
-`git lfs install` \
-`git lfs clone https://github.com/VideologyInc/face-recognition-demo.git ` \
-2. check the dependencies available on the device
-3. run the python script \
-`python3 demo.py`
+## 🚀 Quick Start
+- Clone the repo first
+```bash
+# Clone with Git LFS
+curl -L https://github.com/git-lfs/git-lfs/releases/download/v3.6.1/git-lfs-linux-arm64-v3.6.1.tar.gz | tar -xz
+cp ./git-lfs*/git-lfs /usr/bin
+git lfs install
+git lfs clone https://github.com/VideologyInc/face-recognition-demo.git
+```
 
-# Reference
+- Check the depedencies
+    <details>
+    <summary>Dependencies</summary>
+  
+    - python  
+    - tflite_runtime  
+    - hailoplatform  
+    - gstreamer  
+    - opencv2  
+    - numpy
+    </details>
+
+
+- Run demo
+```bash
+cd face-recognition-demo
+python3 demo.py
+```
+
+# 📖 Reference
 1. https://videology-inc.atlassian.net/wiki/spaces/SUD/pages/63275010/Running+AI+models+in+Python+with+Tensorflow-lite
