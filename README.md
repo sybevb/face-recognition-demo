@@ -6,14 +6,14 @@
 
 Real-time **person and face detection** with **facial expression recognition** on the SCAiLX platform.
 
+---
+
+
 ## 🚀 Quick Start
 - Clone the repo first
 ```bash
-# Clone with Git LFS
-curl -L https://github.com/git-lfs/git-lfs/releases/download/v3.6.1/git-lfs-linux-arm64-v3.6.1.tar.gz | tar -xz
-cp ./git-lfs*/git-lfs /usr/bin
-git lfs install
-git lfs clone https://github.com/VideologyInc/face-recognition-demo.git
+# Clone with Git 
+git clone https://github.com/VideologyInc/face-recognition-demo.git
 ```
 
 - Check the depedencies
@@ -34,6 +34,21 @@ git lfs clone https://github.com/VideologyInc/face-recognition-demo.git
 cd face-recognition-demo
 python3 demo.py
 ```
+---
 
-# 📖 Reference
-1. https://videology-inc.atlassian.net/wiki/spaces/SUD/pages/63275010/Running+AI+models+in+Python+with+Tensorflow-lite
+## GStreamer Examples for Face Detection on Hailo Model
+- Face Detection Model : yolov5s_personface.hef
+```bash
+gst-launch-1.0 v4l2src device=/dev/video0 ! \
+video/x-raw,format=YUY2,framerate=30/1,width=640,height=640 ! \
+videoconvert  ! \
+hailonet hef-path=models/yolov5s_personface.hef ! \
+queue max-size-buffers=5 leaky=2 ! \
+hailofilter so-path=/usr/lib/hailo-post-processes/libyolo_post.so \
+function-name=yolov5_personface \
+config-path=/opt/hailo/apps/multistream_detection/resources/configs/yolov5_personface.json qos=false ! \
+queue max-size-buffers=5 leaky=2 ! \
+hailooverlay qos=false ! videoconvert ! \
+autovideosink
+```
+---
