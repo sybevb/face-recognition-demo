@@ -1,0 +1,11 @@
+gst-launch-1.0 v4l2src device=/dev/video0 ! \
+video/x-raw,format=YUY2,framerate=30/1,width=640,height=640 ! \
+videoconvert  ! \
+hailonet hef-path=models/yolov5s_personface.hef ! \
+queue max-size-buffers=5 leaky=2 ! \
+hailofilter so-path=/usr/lib/hailo-post-processes/libyolo_post.so \
+function-name=yolov5_personface \
+config-path=/opt/hailo/apps/multistream_detection/resources/configs/yolov5_personface.json qos=false ! \
+queue max-size-buffers=5 leaky=2 ! \
+hailooverlay qos=false ! videoconvert ! \
+autovideosink
