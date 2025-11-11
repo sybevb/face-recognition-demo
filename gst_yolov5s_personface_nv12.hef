@@ -1,0 +1,11 @@
+gst-launch-1.0 v4l2src device=/dev/video0 ! \
+video/x-raw,width=640,height=640 ! \
+videoconvert  ! \
+synchailonet hef-path=models/yolov5s_personface_nv12.hef ! \
+queue ! \
+hailofilter so-path=/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so \
+config-path=configs/yolov5_personface.json qos=false ! \
+queue ! \
+hailooverlay ! \
+videoconvert ! \
+autovideosink
