@@ -1,3 +1,13 @@
+"""
+Docstring for prob_reg_demo
+Probabilistic classification + regression demo using Hailo model in GStreamer pipeline.
+
+Transfer to SCAI-LX:
+scp -r .\face-recognition-demo\ root@scailx-ai.local:/opt/hailo/apps
+
+"""
+
+
 import argparse
 import cairo
 import cv2
@@ -28,7 +38,7 @@ from gi.repository import Gst, GLib
 
 INPUT_SIZE = 224  # from HEF: (224, 224, 3)
 CLASS_NAMES = ["No view", "Pipe"]  # change to your real labels if you want
-
+REGRESSION_NAMES = ["Spray", "Under water", "Dirty lens"]
 
 class ProbRegModel:
     """
@@ -253,21 +263,16 @@ class ProbRegDemo:
         return Gst.FlowReturn.OK
 
     def draw(self, overlay, context: cairo.Context, timestamp, duration):
-        """
-        cairooverlay callback: draw a box at top-left with
-        class probabilities and regression values.
-        """
         # Box position and size
         margin_x = 10
         margin_y = 10
-        box_width = 320
-        box_height = 110
+        box_width = 360
+        box_height = 180  # iets hoger: 2 klassen + 3 regressies
 
         # Background rectangle (semi-transparent black)
         try:
             context.set_source_rgba(0, 0, 0, 0.6)
         except TypeError:
-            # Fallback if rgba is not supported; just solid black
             context.set_source_rgb(0, 0, 0)
         context.rectangle(margin_x, margin_y, box_width, box_height)
         context.fill()
@@ -279,36 +284,33 @@ class ProbRegDemo:
         x_text = margin_x + 10
         y_text = margin_y + 25
 
-        # Line 1: header
+        # Header
         context.move_to(x_text, y_text)
         context.show_text("Model output:")
 
-        # Line 2 & 3: probabilities
+        # Class probabilities
         y_text += 22
         context.move_to(x_text, y_text)
-        context.show_text(
-            f"{CLASS_NAMES[0]}: {self.cls_probs[0]:.3f}"
-        )
+        context.show_text(f"{CLASS_NAMES[0]}: {self.cls_probs[0]:.3f}")
 
         y_text += 22
         context.move_to(x_text, y_text)
-        context.show_text(
-            f"{CLASS_NAMES[1]}: {self.cls_probs[1]:.3f}"
-        )
+        context.show_text(f"{CLASS_NAMES[1]}: {self.cls_probs[1]:.3f}")
 
-        # Line 4: regression
-        y_text += 22
+        # Regression values with names
         r0, r1, r2 = self.regression
-        context.move_to(x_text, y_text)
-        context.show_text(
-            f"reg: [{r0:.3f}, {r1:.3f}, {r2:.3f}]"
-        )
 
-    def close(self):
-        if hasattr(self, "model") and self.model:
-            self.model.close()
-        if hasattr(self, "pipeline") and self.pipeline:
-            self.pipeline.set_state(Gst.State.NULL)
+        y_text += 26
+        context.move_to(x_text, y_text)
+        context.show_text(f"{REGRESSION_NAMES[0]}: {r0:.3f}")
+
+        y_text += 22
+        context.move_to(x_text, y_text)
+        context.show_text(f"{REGRESSION_NAMES[1]}: {r1:.3f}")
+
+        y_text += 22
+        context.move_to(x_text, y_text)
+        context.show_text(f"{REGRESSION_NAMES[2]}: {r2:.3f}")
 
 
 # -----------------------------
