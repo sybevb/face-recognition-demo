@@ -26,29 +26,31 @@ from gi.repository import Gst, GLib
 # Hailo model wrapper
 # -----------------------------
 
-INPUT_SIZE = 224  # your model input: 3 x 224 x 224
-CLASS_NAMES = ["Pipe", "No View"]  # change if you have specific names
+INPUT_SIZE = 224  # from HEF: (224, 224, 3)
+CLASS_NAMES = ["No view", "Pipe"]  # change to your real labels if you want
 
 
 class ProbRegModel:
     """
-    Wrapper around Hailo HEF (models/model_fused_fixed.hef).
+    Wrapper around Hailo HEF (models/my_tflite_model.hef).
 
-    HEF info:
-      - Input vstream : model_fused_fixed/input_layer1, shape (224, 224, 3)
-      - Output vstream: model_fused_fixed/fc3, shape [3]
+    HEF info (from your console):
+      - Input vstream : my_tflite_model/input_layer1, shape=(224, 224, 3)
+      - Output vstream: my_tflite_model/softmax1, shape=(2,)
+                        my_tflite_model/fc4,      shape=(3,)
 
     Assumptions:
-      - First 2 values of fc3 are classification logits for 2 classes.
-      - First 3 values of fc3 are the 3 regression values.
+      - my_tflite_model/softmax1 already gives 2 class probabilities.
+      - my_tflite_model/fc4 gives 3 regression values.
     """
 
     def __init__(self, hef_path: str):
         print("Loading Hailo model:", hef_path, "------ ", end="")
 
-        # Hardcoded vstream names based on your printout
-        self.input_name = "model_fused_fixed/input_layer1"
-        self.output_name = "model_fused_fixed/fc3"
+        # Hardcoded vstream names for this HEF
+        self.input_name = "my_tflite_model/input_layer1"
+        self.cls_name = "my_tflite_model/softmax1"
+        self.reg_name = "my_tflite_model/fc4"
 
         # Hailo setup
         params = VDevice.create_params()
@@ -104,14 +106,14 @@ class ProbRegModel:
 
     def _preprocess(self, frame_bgr: np.ndarray) -> np.ndarray:
         """
-        Preprocess frame to match input Hailo expects:
+        Preprocess frame to match model input:
           - size: 224x224
           - layout: HWC (224, 224, 3)
           - dtype: uint8
           - batch: [1, 224, 224, 3]
         """
         img = cv2.resize(frame_bgr, (INPUT_SIZE, INPUT_SIZE))
-        # Keep BGR order unless you know the model was trained on RGB.
+        # Keep BGR unless you *know* it's RGB-trained and want to swap.
         input_data = np.expand_dims(img, axis=0).astype(np.uint8)  # (1, 224, 224, 3)
         return input_data
 
@@ -129,33 +131,39 @@ class ProbRegModel:
             infer_results = self.infer_pipeline.infer(input_data)
         except Exception as e:
             print("Inference error:", e)
-            # fallback: zeros so overlay code still works
+            # fallback so overlay still works
             return np.zeros(2, dtype=np.float32), np.zeros(3, dtype=np.float32)
 
-        if self.output_name not in infer_results:
+        # Debug if something goes wrong
+        if self.cls_name not in infer_results or self.reg_name not in infer_results:
             print("Available output keys:", list(infer_results.keys()))
             raise KeyError(
-                f"Output vstream '{self.output_name}' not found in infer_results."
+                f"Expected outputs '{self.cls_name}' and '{self.reg_name}' "
+                f"not found in infer_results."
             )
 
-        # fc3: expected shape [3] or [1, 3]
-        fc3 = infer_results[self.output_name]
-        vec = np.array(fc3).reshape(-1)  # flatten to (N,)
+        # ----- classification: softmax1 (already probabilities) -----
+        cls_probs = np.array(infer_results[self.cls_name]).reshape(-1)  # (2,)
+        if cls_probs.size < 2:
+            tmp = np.zeros(2, dtype=np.float32)
+            tmp[:cls_probs.size] = cls_probs
+            cls_probs = tmp
+        elif cls_probs.size > 2:
+            cls_probs = cls_probs[:2]
 
-        # Make sure we have at least 3 values; pad with zeros if shorter
-        if vec.size < 3:
+        # Just in case they are not perfectly normalized:
+        s = float(np.sum(cls_probs))
+        if s > 0:
+            cls_probs = cls_probs / s
+
+        # ----- regression: fc4 -----
+        regression = np.array(infer_results[self.reg_name]).reshape(-1)  # (3,)
+        if regression.size < 3:
             tmp = np.zeros(3, dtype=np.float32)
-            tmp[:vec.size] = vec
-            vec = tmp
-
-        # ---- classification: first 2 values as logits ----
-        logits = vec[:2]
-        # Softmax
-        e = np.exp(logits - np.max(logits))
-        cls_probs = e / np.sum(e)
-
-        # ---- regression: first 3 values ----
-        regression = vec[:3]
+            tmp[:regression.size] = regression
+            regression = tmp
+        elif regression.size > 3:
+            regression = regression[:3]
 
         return cls_probs.astype(np.float32), regression.astype(np.float32)
 
@@ -212,7 +220,7 @@ class ProbRegDemo:
 
         # ---- Hailo model ----
         # Change file name here to your HEF
-        hef_path = os.path.join(model_path, "model_fused_fixed.hef")
+        hef_path = os.path.join(model_path, "my_tflite_model.hef")
         self.model = ProbRegModel(hef_path)
 
         self.inited = True
