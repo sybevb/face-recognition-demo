@@ -32,13 +32,23 @@ CLASS_NAMES = ["Pipe", "No View"]  # change if you have specific names
 
 class ProbRegModel:
     """
-    Simple wrapper around a Hailo HEF that outputs:
-      - cls_logits: [1, 2]
-      - regression: [1, 3]
+    Wrapper around Hailo HEF (models/model_fused_fixed.hef).
+
+    HEF info:
+      - Input vstream : model_fused_fixed/input_layer1, shape (224, 224, 3)
+      - Output vstream: model_fused_fixed/fc3, shape [3]
+
+    Assumptions:
+      - First 2 values of fc3 are classification logits for 2 classes.
+      - First 3 values of fc3 are the 3 regression values.
     """
 
     def __init__(self, hef_path: str):
         print("Loading Hailo model:", hef_path, "------ ", end="")
+
+        # Hardcoded vstream names based on your printout
+        self.input_name = "model_fused_fixed/input_layer1"
+        self.output_name = "model_fused_fixed/fc3"
 
         # Hailo setup
         params = VDevice.create_params()
@@ -47,6 +57,16 @@ class ProbRegModel:
 
         self.hef = HEF(hef_path)
 
+        # Optional: print vstream info once for sanity
+        print("\nInput vstream infos:")
+        for input_info in self.hef.get_input_vstream_infos():
+            print(f"  name={input_info.name}, shape={input_info.shape}")
+
+        print("Output vstream infos:")
+        for output_info in self.hef.get_output_vstream_infos():
+            print(f"  name={output_info.name}, shape={output_info.shape}")
+
+        # Configure device + vstreams
         self.configure_params = ConfigureParams.create_from_hef(
             hef=self.hef,
             interface=HailoStreamInterface.PCIe
@@ -56,28 +76,27 @@ class ProbRegModel:
         self.network_group = self.network_groups[0]
         self.network_group_params = self.network_group.create_params()
 
-        # Input: quantized uint8; layout is defined in the HEF
+        # Input: quantized uint8, HWC (224, 224, 3)
         self.input_vstreams_params = InputVStreamParams.make(
             self.network_group,
             quantized=True,
-            format_type=FormatType.UINT8
+            format_type=FormatType.UINT8,
         )
 
-        # Outputs: dequantized float32
+        # Output: dequantized float32
         self.output_vstreams_params = OutputVStreamParams.make(
             self.network_group,
             quantized=False,
-            format_type=FormatType.FLOAT32
+            format_type=FormatType.FLOAT32,
         )
 
-        # Activate network group + vstreams
         self.network_group_context = self.network_group.activate(self.network_group_params)
         self.network_group_context.__enter__()  # keep network active
 
         self.infer_pipeline = InferVStreams(
             self.network_group,
             self.input_vstreams_params,
-            self.output_vstreams_params
+            self.output_vstreams_params,
         )
         self.infer_pipeline.__enter__()  # keep vstreams alive
 
@@ -85,16 +104,15 @@ class ProbRegModel:
 
     def _preprocess(self, frame_bgr: np.ndarray) -> np.ndarray:
         """
-        Preprocess frame to match input: [N, 3, 224, 224], uint8.
+        Preprocess frame to match input Hailo expects:
+          - size: 224x224
+          - layout: HWC (224, 224, 3)
+          - dtype: uint8
+          - batch: [1, 224, 224, 3]
         """
         img = cv2.resize(frame_bgr, (INPUT_SIZE, INPUT_SIZE))
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        # HWC -> CHW
-        img_chw = np.transpose(img_rgb, (2, 0, 1))  # (3, 224, 224)
-
-        # Add batch dim → (1, 3, 224, 224)
-        input_data = np.expand_dims(img_chw, axis=0).astype(np.uint8)
+        # Keep BGR order unless you know the model was trained on RGB.
+        input_data = np.expand_dims(img, axis=0).astype(np.uint8)  # (1, 224, 224, 3)
         return input_data
 
     def infer(self, frame_bgr: np.ndarray):
@@ -102,8 +120,8 @@ class ProbRegModel:
         Run inference on a single frame.
 
         Returns:
-            cls_probs: np.ndarray of shape (2,)
-            regression: np.ndarray of shape (3,)
+            cls_probs: np.ndarray of shape (2,)   # 2 class probabilities
+            regression: np.ndarray of shape (3,)  # 3 regression values
         """
         input_data = self._preprocess(frame_bgr)
 
@@ -111,21 +129,35 @@ class ProbRegModel:
             infer_results = self.infer_pipeline.infer(input_data)
         except Exception as e:
             print("Inference error:", e)
-            # Return zeros so overlay stays valid
+            # fallback: zeros so overlay code still works
             return np.zeros(2, dtype=np.float32), np.zeros(3, dtype=np.float32)
 
-        # Expecting these names in the HEF output vstreams
-        cls_logits = infer_results["cls_logits"]  # shape [1, 2]
-        regression = infer_results["regression"]  # shape [1, 3]
+        if self.output_name not in infer_results:
+            print("Available output keys:", list(infer_results.keys()))
+            raise KeyError(
+                f"Output vstream '{self.output_name}' not found in infer_results."
+            )
 
-        cls_logits = np.squeeze(cls_logits, axis=0)  # (2,)
-        regression = np.squeeze(regression, axis=0)  # (3,)
+        # fc3: expected shape [3] or [1, 3]
+        fc3 = infer_results[self.output_name]
+        vec = np.array(fc3).reshape(-1)  # flatten to (N,)
 
-        # Softmax to get probabilities
-        e = np.exp(cls_logits - np.max(cls_logits))
+        # Make sure we have at least 3 values; pad with zeros if shorter
+        if vec.size < 3:
+            tmp = np.zeros(3, dtype=np.float32)
+            tmp[:vec.size] = vec
+            vec = tmp
+
+        # ---- classification: first 2 values as logits ----
+        logits = vec[:2]
+        # Softmax
+        e = np.exp(logits - np.max(logits))
         cls_probs = e / np.sum(e)
 
-        return cls_probs, regression
+        # ---- regression: first 3 values ----
+        regression = vec[:3]
+
+        return cls_probs.astype(np.float32), regression.astype(np.float32)
 
     def close(self):
         if hasattr(self, "infer_pipeline") and self.infer_pipeline:
