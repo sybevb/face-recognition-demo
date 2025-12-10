@@ -96,6 +96,7 @@ class PFDemo:
         # else:
         #     self.detections = detections
         #     self.emo = emo
+        self.detections = detections  # save for overlay
 
         return Gst.FlowReturn.OK
 
