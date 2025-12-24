@@ -1,0 +1,5 @@
+numpy
+opencv-python
+pycairo
+PyGObject
+hailo-platform
