@@ -27,6 +27,44 @@ def smooth_series_ema(series, alpha=0.2):
     return out
 
 
+def enforce_min_duration(t, flags, min_sec):
+    if len(flags) == 0:
+        return flags
+
+    segments = []
+    start = 0
+    current = flags[0]
+    for i in range(1, len(flags) + 1):
+        if i == len(flags) or flags[i] != current:
+            segments.append({"start": start, "end": i - 1, "value": current})
+            if i < len(flags):
+                start = i
+                current = flags[i]
+
+    def seg_duration(seg):
+        return float(t.iloc[seg["end"]] - t.iloc[seg["start"]])
+
+    i = 0
+    while i < len(segments):
+        if seg_duration(segments[i]) < min_sec:
+            if i > 0:
+                segments[i - 1]["end"] = segments[i]["end"]
+                segments.pop(i)
+                i = max(i - 1, 0)
+                continue
+            if i + 1 < len(segments):
+                segments[i + 1]["start"] = segments[i]["start"]
+                segments.pop(i)
+                continue
+        i += 1
+
+    smoothed = flags[:]
+    for seg in segments:
+        for idx in range(seg["start"], seg["end"] + 1):
+            smoothed[idx] = seg["value"]
+    return smoothed
+
+
 def find_latest_csv(log_dir: Path) -> Path:
     candidates = sorted(
         log_dir.glob("prob_reg_*.csv"), key=lambda p: p.stat().st_mtime, reverse=True
@@ -62,6 +100,7 @@ def main():
     reg2 = smooth_series_ema(df["reg_2"], alpha=args.alpha)
 
     plt.figure(figsize=(12, 5))
+    ax = plt.gca()
     plt.plot(t, cls0, label=f"{CLASS_NAMES[0]} (ema)")
     plt.plot(t, cls1, label=f"{CLASS_NAMES[1]} (ema)")
     plt.plot(t, reg0, label=f"{REGRESSION_NAMES[0]} (ema)")
@@ -70,6 +109,28 @@ def main():
     plt.title("Model outputs over time")
     plt.xlabel("Time (s)")
     plt.ylabel("Value / Probability")
+
+    is_pipe_ok = [
+        (c1 > 0.5) and (r0 < 0.5) and (r1 < 0.5) and (r2 < 0.5)
+        for c1, r0, r1, r2 in zip(
+            df["cls_1"], df["reg_0"], df["reg_1"], df["reg_2"]
+        )
+    ]
+    is_pipe_ok = enforce_min_duration(t, is_pipe_ok, min_sec=0.5)
+    green_pct = (sum(is_pipe_ok) / len(is_pipe_ok) * 100.0) if len(is_pipe_ok) > 0 else 0.0
+    plt.title(f"Model outputs over time (success: {green_pct:.1f}%)")
+
+    # Background spans on main plot
+    start_idx = 0
+    current = is_pipe_ok[0] if len(is_pipe_ok) > 0 else False
+    for i in range(1, len(is_pipe_ok) + 1):
+        if i == len(is_pipe_ok) or is_pipe_ok[i] != current:
+            color = "green" if current else "red"
+            ax.axvspan(t.iloc[start_idx], t.iloc[i - 1], color=color, alpha=0.35)
+            if i < len(is_pipe_ok):
+                start_idx = i
+                current = is_pipe_ok[i]
+
     plt.legend()
     plt.grid(True)
     plt.tight_layout()

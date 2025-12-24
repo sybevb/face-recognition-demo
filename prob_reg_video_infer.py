@@ -87,8 +87,7 @@ class ProbRegModel:
         print("Done!")
 
     def _preprocess(self, frame_bgr: np.ndarray) -> np.ndarray:
-        img = cv2.resize(frame_bgr, (INPUT_SIZE, INPUT_SIZE))
-        input_data = np.expand_dims(img, axis=0).astype(np.uint8)
+        input_data = np.expand_dims(frame_bgr, axis=0).astype(np.uint8)
         return input_data
 
     def infer(self, frame_bgr: np.ndarray):
@@ -136,10 +135,18 @@ class ProbRegModel:
 
 
 class ProbRegVideoInfer:
-    def __init__(self, input_path: str, model_path: str, log_dir: str):
+    def __init__(
+        self,
+        input_path: str,
+        model_path: str,
+        log_dir: str,
+        decoder: str,
+        flush_every: int,
+    ):
         self.inited = False
         self.frame_idx = 0
         self.loop = None
+        self.flush_every = max(1, flush_every)
 
         if not os.path.isfile(input_path):
             raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -156,11 +163,16 @@ class ProbRegVideoInfer:
         hef_path = os.path.join(model_path, "my_tflite_model.hef")
         self.model = ProbRegModel(hef_path)
 
+        if decoder == "v4l2h264dec":
+            decode_chain = "qtdemux ! h264parse ! v4l2h264dec"
+        else:
+            decode_chain = "decodebin"
+
         pipeline_desc = (
             f"filesrc location=\"{input_path}\" ! "
-            "decodebin ! "
+            f"{decode_chain} ! "
             "videoconvert ! "
-            "video/x-raw,format=BGR ! "
+            f"videoscale ! video/x-raw,format=BGR,width={INPUT_SIZE},height={INPUT_SIZE} ! "
             "appsink name=ml_sink emit-signals=true sync=false max-buffers=1 drop=false"
         )
 
@@ -205,7 +217,8 @@ class ProbRegVideoInfer:
             f"{cls_probs[0]:.6f},{cls_probs[1]:.6f},"
             f"{regression[0]:.6f},{regression[1]:.6f},{regression[2]:.6f}\n"
         )
-        self.log_f.flush()
+        if (self.frame_idx % self.flush_every) == 0:
+            self.log_f.flush()
 
         self.frame_idx += 1
         return Gst.FlowReturn.OK
@@ -244,10 +257,25 @@ def main():
     parser.add_argument(
         "--log_dir", type=str, default="logs", help="Directory to write logs"
     )
+    parser.add_argument(
+        "--decoder",
+        type=str,
+        default="decodebin",
+        choices=["decodebin", "v4l2h264dec"],
+        help="Decoder element to use (v4l2h264dec assumes H.264 in MP4)",
+    )
+    parser.add_argument(
+        "--flush_every",
+        type=int,
+        default=30,
+        help="Flush log to disk every N frames",
+    )
     args = parser.parse_args()
 
     Gst.init(None)
-    runner = ProbRegVideoInfer(args.input, args.model_path, args.log_dir)
+    runner = ProbRegVideoInfer(
+        args.input, args.model_path, args.log_dir, args.decoder, args.flush_every
+    )
 
     loop = GLib.MainLoop()
     runner.loop = loop
